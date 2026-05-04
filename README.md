@@ -1,4 +1,4 @@
-# Sumry / Sumly — local AI page summarizer
+# Sumly — local AI page summarizer
 
 This repository contains a **Manifest V3 browser extension** (`sumry-extension/`) plus a **local Node.js proxy** (`sumry-extension/proxy-server/`) that calls LLM APIs. It is intended for **personal, local use**. **Do not publish this extension to the Chrome Web Store** unless you complete store policies, MV3 packaging, privacy disclosures, and key-handling requirements—this README assumes you load the extension unpacked from disk only.
 
@@ -57,7 +57,7 @@ Use `npm run watch:css` while editing Tailwind sources.
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select the **`sumry-extension`** folder (the directory that contains `manifest.json`).
+4. Select the **`sumly-extension`** folder (the directory that contains `manifest.json`).
 
 Chrome assigns an **extension ID**. Copy your proxy URL into the extension settings (defaults to `http://localhost:3001`) and **set `ALLOWED_ORIGIN` in proxy `.env`** to:
 
