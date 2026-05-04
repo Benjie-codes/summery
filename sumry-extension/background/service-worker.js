@@ -228,13 +228,13 @@ async function sendExtractRequest(tabId) {
   }
 }
 
-async function callProxy(content, url, mode) {
+async function callProxy(content, url, mode, title) {
   const settings = await getSettings();
   const proxyBase = String(settings.proxyUrl || DEFAULT_SETTINGS.proxyUrl).replace(/\/$/, "");
   const response = await fetch(`${proxyBase}/summarize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, url, mode })
+    body: JSON.stringify({ content, url, mode, title })
   });
 
   if (!response.ok) {
@@ -265,7 +265,7 @@ async function handleSummarize(message) {
       };
     }
 
-    const response = await callProxy(extracted.text, url, mode || "full");
+    const response = await callProxy(extracted.text, url, mode || "full", extracted.title || "");
     const payload = {
       summary: response.summary,
       keyInsights: response.keyInsights,

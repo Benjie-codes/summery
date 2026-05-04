@@ -77,6 +77,13 @@ function getTextDensity(el) {
   return textLen / htmlLen;
 }
 
+function scoreCandidate(el) {
+  const text = normalizeText(el.textContent || "");
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const density = getTextDensity(el);
+  return words * density;
+}
+
 function findBestByDensity(root) {
   const candidates = Array.from(root.querySelectorAll("article,main,section,div"))
     .filter((el) => normalizeText(el.textContent || "").length > 250)
@@ -86,9 +93,9 @@ function findBestByDensity(root) {
   }
 
   let best = candidates[0];
-  let bestScore = getTextDensity(best);
+  let bestScore = scoreCandidate(best);
   candidates.forEach((el) => {
-    const score = getTextDensity(el);
+    const score = scoreCandidate(el);
     if (score > bestScore) {
       best = el;
       bestScore = score;
@@ -100,7 +107,16 @@ function findBestByDensity(root) {
 function extractFromElement(sourceEl) {
   const clone = sourceEl.cloneNode(true);
   pruneNoise(clone);
-  const text = normalizeText(clone.textContent || "");
+
+  const blocks = Array.from(clone.querySelectorAll("h1,h2,h3,h4,p,li,blockquote,pre"))
+    .map((el) => normalizeText(el.textContent || ""))
+    .filter((line) => line.length > 30)
+    .slice(0, 1200);
+
+  let text = normalizeText(blocks.join("\n\n"));
+  if (text.length < 300) {
+    text = normalizeText(clone.textContent || "");
+  }
   return text.slice(0, 50000);
 }
 
