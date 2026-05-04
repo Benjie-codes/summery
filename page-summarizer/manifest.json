@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Sumly — Page Summarizer",
+  "version": "1.0.0",
+  "description": "AI-powered page summarizer with key insights and reading time.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "utils/readability.js",
+        "utils/sanitize.js",
+        "content/content-script.js"
+      ]
+    }
+  ],
+  "web_accessible_resources": []
+}
