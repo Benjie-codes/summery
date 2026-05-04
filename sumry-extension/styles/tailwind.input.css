@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ember: #f2921d;
+    --flame: #f24f13;
+    --dusk: #46334f;
+  }
+}

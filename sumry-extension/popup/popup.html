@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@500;700&display=swap"
+    />
+    <link rel="stylesheet" href="./popup.css" />
+    <title>Sumly</title>
+  </head>
+  <body class="sumly-body">
+    <div id="app" class="sumly-app theme-dark">
+      <header class="sumly-header">
+        <div class="sumly-brand">
+          <span class="sumly-brand-mark">◈</span>
+          <h1>Sumly</h1>
+        </div>
+        <div class="sumly-header-actions">
+          <button id="themeToggle" class="sumly-icon-btn" aria-label="Toggle theme">☼</button>
+          <button id="refreshBtn" class="sumly-icon-btn" aria-label="Resummarize">↻</button>
+        </div>
+      </header>
+
+      <section id="pageMeta" class="sumly-meta hidden">
+        <p id="pageTitle" class="sumly-title"></p>
+        <div class="sumly-meta-row">
+          <span id="wordCount"></span>
+          <span>·</span>
+          <span id="readingTime"></span>
+          <span id="cacheBadge" class="sumly-cache hidden"></span>
+        </div>
+      </section>
+
+      <main id="stateArea" class="sumly-state"></main>
+
+      <footer id="actionBar" class="sumly-actions hidden">
+        <button id="copyBtn" class="sumly-btn sumly-btn-ghost">Copy</button>
+        <button id="clearBtn" class="sumly-btn sumly-btn-ghost">Clear</button>
+        <button id="summarizeBtn" class="sumly-btn sumly-btn-primary">Summarize</button>
+      </footer>
+    </div>
+    <script src="./popup.js"></script>
+  </body>
+</html>
