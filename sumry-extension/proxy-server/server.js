@@ -21,7 +21,7 @@ app.use(helmet());
 app.use(express.json({ limit: "50kb" }));
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-1.5-flash"];
 
 // Simple sliding-window limiter: Map<ip, { count, resetTime }>
 const rateMap = new Map();
@@ -71,6 +71,85 @@ function parseJsonResponse(text) {
     }
     return JSON.parse(match[0]);
   }
+}
+
+function stripCodeFences(text) {
+  return String(text || "")
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+function splitIntoSentences(text) {
+  return String(text || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function buildFallbackPayload(rawText, mode, sanitizedContent) {
+  const clean = stripCodeFences(rawText);
+  const sentences = splitIntoSentences(clean);
+  const fallbackSummary =
+    mode === "bullets"
+      ? sentences.slice(0, 3).map((s) => `• ${s.replace(/^•\s*/, "")}`).join("\n")
+      : (sentences.slice(0, 4).join(" ") || clean.slice(0, 600));
+
+  const keyInsights = sentences.slice(0, 3).map((s) => s.replace(/^•\s*/, ""));
+  const wordCount = sanitizedContent.split(/\s+/).filter(Boolean).length;
+  const readingTime = Math.max(1, Math.ceil(wordCount / 238));
+
+  return {
+    summary: String(fallbackSummary || ""),
+    keyInsights: [keyInsights[0] || "", keyInsights[1] || "", keyInsights[2] || ""],
+    readingTime,
+    wordCount,
+    mode,
+    warning: "Model returned malformed JSON. Used fallback text parsing."
+  };
+}
+
+function normalizeErrorMessage(error) {
+  if (!error) {
+    return "Unknown error";
+  }
+  if (typeof error.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch (jsonError) {
+    return String(error);
+  }
+}
+
+function isModelUnavailableError(error) {
+  const message = normalizeErrorMessage(error).toLowerCase();
+  return message.includes("404") || message.includes("not found") || message.includes("unsupported model");
+}
+
+async function generateWithModelFallback(prompt) {
+  let lastError;
+  for (const modelName of MODEL_CANDIDATES) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json"
+        }
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (!isModelUnavailableError(error)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError || new Error("No Gemini model was available.");
 }
 
 function applyCors(req, res, next) {
@@ -153,41 +232,47 @@ app.post("/summarize", applyCors, rateLimit, async (req, res) => {
 
     const sanitizedContent = sanitizeContent(workingContent);
     const prompt = getPrompt(mode, sanitizedContent, validUrl.toString());
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 1024,
-        responseMimeType: "application/json"
-      }
-    });
+    const result = await generateWithModelFallback(prompt);
 
     const rawText = result?.response?.text() || "";
-    const parsed = parseJsonResponse(rawText);
-    const wordCount = Number(parsed.wordCount) || sanitizedContent.split(/\s+/).filter(Boolean).length;
-    const readingTime = Number(parsed.readingTime) || Math.max(1, Math.ceil(wordCount / 238));
-    const keyInsights = Array.isArray(parsed.keyInsights)
-      ? parsed.keyInsights.slice(0, 3).map((v) => String(v))
-      : [];
+    if (!rawText.trim()) {
+      throw new Error("Gemini returned an empty response.");
+    }
+    let payload;
+    try {
+      const parsed = parseJsonResponse(rawText);
+      const wordCount = Number(parsed.wordCount) || sanitizedContent.split(/\s+/).filter(Boolean).length;
+      const readingTime = Number(parsed.readingTime) || Math.max(1, Math.ceil(wordCount / 238));
+      const keyInsights = Array.isArray(parsed.keyInsights)
+        ? parsed.keyInsights.slice(0, 3).map((v) => String(v))
+        : [];
 
-    const payload = {
-      summary: String(parsed.summary || ""),
-      keyInsights: [
-        keyInsights[0] || "",
-        keyInsights[1] || "",
-        keyInsights[2] || ""
-      ],
-      readingTime,
-      wordCount,
-      mode
-    };
+      payload = {
+        summary: String(parsed.summary || ""),
+        keyInsights: [
+          keyInsights[0] || "",
+          keyInsights[1] || "",
+          keyInsights[2] || ""
+        ],
+        readingTime,
+        wordCount,
+        mode
+      };
+    } catch (parseError) {
+      console.warn("Gemini JSON parse failed, falling back to plain text parsing:", normalizeErrorMessage(parseError));
+      payload = buildFallbackPayload(rawText, mode, sanitizedContent);
+    }
 
     if (warning) {
       payload.warning = warning;
     }
     return res.json(payload);
   } catch (error) {
-    return res.status(500).json({ error: "Failed to summarize content." });
+    const message = normalizeErrorMessage(error);
+    const status = Number(error?.status || error?.statusCode || 500);
+    const safeStatus = status >= 400 && status < 600 ? status : 500;
+    console.error("Summarize failed:", message);
+    return res.status(safeStatus).json({ error: message });
   }
 });
 

@@ -49,10 +49,25 @@ function mapError(error) {
       errorCode: "FORBIDDEN_ORIGIN"
     };
   }
+  if (message.includes("401")) {
+    return {
+      error: "Proxy authentication failed. Check your Gemini API key in proxy .env.",
+      errorCode: "AUTH_ERROR"
+    };
+  }
   if (message.includes("429")) {
     return {
       error: "Slow down! You've hit the rate limit. Try again in a minute.",
       errorCode: "RATE_LIMIT"
+    };
+  }
+  if (
+    message.includes("400") &&
+    (lowered.includes("api key") || lowered.includes("model") || lowered.includes("gemini"))
+  ) {
+    return {
+      error: "Proxy could not call Gemini. Check GEMINI_API_KEY and model configuration in proxy-server/.env.",
+      errorCode: "PROXY_CONFIG_ERROR"
     };
   }
   if (message.includes("400")) {
@@ -224,7 +239,7 @@ async function callProxy(content, url, mode) {
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err.error || `Proxy error: ${response.status}`);
+    throw new Error(`Proxy error ${response.status}: ${err.error || "unknown"}`);
   }
 
   return response.json();
