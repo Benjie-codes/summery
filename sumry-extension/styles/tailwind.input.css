@@ -3,9 +3,23 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --ember: #f2921d;
-    --flame: #f24f13;
-    --dusk: #46334f;
+  [data-theme="dark"] {
+    --bg-primary: #0F0D11;
+    --bg-elevated: #171419;
+    --text-primary: #FAF8F5;
+    --text-muted: rgba(250,248,245,0.45);
+    --border: rgba(250,248,245,0.06);
+    --ember: #F2921D;
+    --flame: #F24F13;
+  }
+
+  [data-theme="light"] {
+    --bg-primary: #FAF8F5;
+    --bg-elevated: #F0EDE8;
+    --text-primary: #0F0D11;
+    --text-muted: rgba(15,13,17,0.45);
+    --border: rgba(15,13,17,0.08);
+    --ember: #D4780A;
+    --flame: #C23A0A;
   }
 }

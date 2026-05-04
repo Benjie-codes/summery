@@ -1,44 +1,124 @@
-const TIPS = [
-  "Reading the page structure...",
-  "Finding signal over noise...",
-  "Distilling key arguments...",
-  "Shaping concise output..."
+const States = {
+  IDLE: "idle",
+  LOADING: "loading",
+  SUMMARY: "summary",
+  ERROR: "error"
+};
+
+const LOADING_MESSAGES = [
+  "Reading the page...",
+  "Thinking...",
+  "Almost there...",
+  "Crafting insights..."
 ];
 
+let currentState = States.IDLE;
+let currentSummary = null;
+let isHighlighting = false;
+let currentMode = "full";
 let currentTab = null;
-let currentData = null;
-let toastTimer = null;
-let tipTimer = null;
-let tipIndex = 0;
+let loadingInterval = null;
+let copyResetTimeout = null;
+let lastFocusedBeforeSettings = null;
 
-function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+function sanitize(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function storageRemove(keys) {
-  return new Promise((resolve) => chrome.storage.local.remove(keys, resolve));
+function toBase64(input) {
+  try {
+    return btoa(input);
+  } catch (error) {
+    return btoa(unescape(encodeURIComponent(input)));
+  }
 }
 
-function queryActiveTab() {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-      if (!tabs[0]) return reject(new Error("No active tab"));
-      resolve(tabs[0]);
-    });
+function getCacheKey(url) {
+  return `sumry_${toBase64(String(url || "")).slice(0, 50)}`;
+}
+
+function fmtWords(count) {
+  const n = Number(count || 0);
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+}
+
+function fmtDomain(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch (error) {
+    return "unknown";
+  }
+}
+
+function q(id) {
+  return document.getElementById(id);
+}
+
+function setState(state, data = {}) {
+  currentState = state;
+  const ids = ["state-idle", "state-loading", "state-summary", "state-error"];
+  ids.forEach((id) => {
+    const el = q(id);
+    const active = id === `state-${state}`;
+    el.classList.toggle("hidden", !active);
+    el.classList.remove("state-enter");
+    if (active) {
+      requestAnimationFrame(() => el.classList.add("state-enter"));
+    }
   });
-}
 
-function sendTabMessage(tabId, payload) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, payload, (response) => {
-      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-      resolve(response);
-    });
+  const toolbarButtons = [q("copyBtn"), q("highlightBtn"), q("clearBtn"), q("modeToggle")];
+  const summaryReady = state === States.SUMMARY;
+  toolbarButtons.forEach((btn) => {
+    if (!btn) return;
+    btn.disabled = !summaryReady && btn.id !== "modeToggle";
+    btn.setAttribute("aria-disabled", btn.disabled ? "true" : "false");
   });
+
+  if (state === States.ERROR) {
+    q("errorText").textContent = sanitize(data.message || "Unable to summarize.");
+  }
+
+  if (state === States.LOADING) {
+    q("loadingText").textContent = LOADING_MESSAGES[0];
+  }
 }
 
-function sendRuntimeMessage(payload) {
+function startMessageCycle(messages, delayMs) {
+  const label = q("loadingText");
+  let index = 0;
+  label.textContent = messages[0];
+  return setInterval(() => {
+    index = (index + 1) % messages.length;
+    label.textContent = messages[index];
+  }, delayMs);
+}
+
+function setTheme(theme) {
+  const normalized = theme === "light" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", normalized);
+  q("themeIcon").textContent = normalized === "light" ? "☾" : "☀";
+}
+
+function updateModeUI(mode) {
+  currentMode = mode === "bullets" ? "bullets" : "full";
+  q("modeToggle").textContent = currentMode === "full" ? "Full ↔ 3 Bullets" : "3 Bullets ↔ Full";
+  q("metaMode").textContent = currentMode === "full" ? "FULL" : "3-BULLETS";
+}
+
+function showToast(message) {
+  let toast = document.querySelector(".toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.className = "toast";
+    q("app").appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 1800);
+}
+
+async function sendRuntimeMessage(payload) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(payload, (response) => {
       if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
@@ -47,253 +127,347 @@ function sendRuntimeMessage(payload) {
   });
 }
 
-function getCacheKey(url) {
-  return `summary_${url}`;
+async function sendTabMessage(tabId, payload) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, payload, (response) => {
+      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+      resolve(response);
+    });
+  });
 }
 
-function fmtWords(value) {
-  const n = Number(value || 0);
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k words` : `${n} words`;
-}
-
-function sanitize(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
-
-function showToast(message) {
-  const app = document.getElementById("app");
-  let toast = app.querySelector(".sumly-toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.className = "sumly-toast";
-    app.appendChild(toast);
-  }
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2000);
-}
-
-function applyTheme(theme) {
-  const app = document.getElementById("app");
-  app.classList.remove("theme-dark", "theme-light");
-  app.classList.add(theme === "theme-light" ? "theme-light" : "theme-dark");
-}
-
-function setMeta(data, isCached = false) {
-  const block = document.getElementById("pageMeta");
-  if (!data?.meta) {
-    block.classList.add("hidden");
-    return;
-  }
-
-  block.classList.remove("hidden");
-  document.getElementById("pageTitle").textContent = sanitize(data.title || data.meta.title || "");
-  document.getElementById("wordCount").textContent = fmtWords(data.meta.wordCount);
-  document.getElementById("readingTime").textContent = `~${Math.max(1, Number(data.meta.readingTime || 1))} min read`;
-
-  const badge = document.getElementById("cacheBadge");
-  if (isCached && data.timestamp) {
-    const mins = Math.max(1, Math.floor((Date.now() - data.timestamp) / 60000));
-    badge.textContent = `Cached · ${mins} min ago`;
-    badge.classList.remove("hidden");
+function updatePageInfo(tab) {
+  q("pageTitle").textContent = sanitize(tab?.title) || "Untitled Page";
+  q("pageDomain").textContent = fmtDomain(tab?.url || "");
+  if (tab?.favIconUrl) {
+    q("pageFavicon").src = tab.favIconUrl;
+    q("pageFavicon").classList.remove("hidden");
   } else {
-    badge.classList.add("hidden");
+    q("pageFavicon").classList.add("hidden");
   }
-}
-
-function renderIdle() {
-  return `
-    <section class="sumly-idle">
-      <div class="sumly-brand-mark" style="font-size:44px;">◈</div>
-      <h2>Summarize this page</h2>
-      <p class="sumly-muted">One click to get a compact read with key points and insights.</p>
-      <button id="idleSummarizeBtn" class="sumly-btn sumly-btn-primary" style="margin-top:14px;">Summarize</button>
-    </section>
-  `;
-}
-
-function renderLoading() {
-  return `
-    <section class="sumly-loading">
-      <div class="sumly-loader"><span></span><span></span><span></span></div>
-      <p id="tipLabel" class="sumly-muted"></p>
-    </section>
-  `;
 }
 
 function renderSummary(data) {
-  const summary = data.summary || {};
-  const points = (summary.keyPoints || []).map((p) => `<li>${sanitize(p)}</li>`).join("");
-  const insights = (summary.insights || [])
-    .map((i) => `<div class="sumly-insight">${sanitize(i)}</div>`)
-    .join("");
+  q("metaWordCount").textContent = `${fmtWords(data.wordCount)} words`;
+  q("metaReadingTime").textContent = `${Math.max(1, Number(data.readingTime || 1))}m read`;
+  q("cacheBadge").classList.toggle("hidden", data.source !== "cache");
 
-  return `
-    <section class="sumly-section">
-      <div class="sumly-label">SUMMARY</div>
-      <p class="sumly-tldr">${sanitize(summary.tldr || "")}</p>
-    </section>
-    <section class="sumly-section">
-      <div class="sumly-label">KEY POINTS</div>
-      <ul class="sumly-points">${points}</ul>
-    </section>
-    ${insights ? `<section class="sumly-section"><div class="sumly-label">INSIGHTS</div>${insights}</section>` : ""}
-  `;
+  updateModeUI(data.mode || currentMode);
+
+  const insights = Array.isArray(data.keyInsights) ? data.keyInsights.slice(0, 3) : [];
+  const summarySection = q("summarySection");
+  const summaryText = q("summaryText");
+  const insightsList = q("insightsList");
+  insightsList.innerHTML = "";
+
+  if (currentMode === "bullets") {
+    summarySection.classList.add("hidden");
+  } else {
+    summarySection.classList.remove("hidden");
+    summaryText.textContent = sanitize(data.summary);
+  }
+
+  insights.forEach((insight, index) => {
+    const li = document.createElement("li");
+    li.style.opacity = "0";
+    li.style.transform = "translateY(4px)";
+    li.style.transition = "opacity 150ms ease-out, transform 150ms ease-out";
+
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.textContent = "•";
+
+    const body = document.createElement("div");
+    const text = document.createElement("div");
+    text.className = "insight-text";
+    text.textContent = sanitize(insight);
+    body.appendChild(text);
+
+    li.appendChild(dot);
+    li.appendChild(body);
+    insightsList.appendChild(li);
+
+    setTimeout(() => {
+      li.style.opacity = "1";
+      li.style.transform = "translateY(0)";
+    }, 80 * index);
+
+    requestAnimationFrame(() => {
+      if (text.scrollHeight > text.clientHeight + 2) {
+        const btn = document.createElement("button");
+        btn.className = "expand-btn";
+        btn.textContent = "Expand";
+        btn.addEventListener("click", () => {
+          const expanded = text.classList.toggle("expanded");
+          btn.textContent = expanded ? "Collapse" : "Expand";
+        });
+        body.appendChild(btn);
+      }
+    });
+  });
 }
 
-function setLoadingTips() {
-  clearInterval(tipTimer);
-  tipIndex = 0;
-  const el = document.getElementById("tipLabel");
-  if (!el) return;
-  el.textContent = TIPS[0];
-  tipTimer = setInterval(() => {
-    tipIndex = (tipIndex + 1) % TIPS.length;
-    const label = document.getElementById("tipLabel");
-    if (label) label.textContent = TIPS[tipIndex];
+async function summarize() {
+  setState(States.LOADING);
+  loadingInterval = startMessageCycle(LOADING_MESSAGES, 2000);
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const result = await sendRuntimeMessage({
+      action: "SUMMARIZE",
+      tabId: tab.id,
+      url: tab.url,
+      mode: currentMode
+    });
+
+    clearInterval(loadingInterval);
+
+    if (result?.error) {
+      setState(States.ERROR, { message: result.error, code: result.errorCode });
+      return;
+    }
+
+    currentSummary = result;
+    renderSummary(result);
+    setState(States.SUMMARY);
+  } catch (err) {
+    clearInterval(loadingInterval);
+    setState(States.ERROR, { message: err.message });
+  }
+}
+
+function extractHighlightTerms(insights) {
+  const words = String((insights || []).join(" "))
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-zA-Z]/g, ""))
+    .filter((w) => w.length > 5);
+  return [...new Set(words)].slice(0, 12);
+}
+
+async function toggleHighlight() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const btn = q("highlightBtn");
+
+  if (isHighlighting) {
+    await sendTabMessage(tab.id, { action: "CLEAR_HIGHLIGHTS" }).catch(() => null);
+    isHighlighting = false;
+    btn.classList.remove("active");
+    return;
+  }
+
+  const terms = extractHighlightTerms(currentSummary?.keyInsights?.slice(0, 3) || []);
+  if (!terms.length) return;
+  await sendTabMessage(tab.id, { action: "HIGHLIGHT_TERMS", terms }).catch(() => null);
+  isHighlighting = true;
+  btn.classList.add("active");
+}
+
+async function copySummary() {
+  if (!currentSummary) return;
+  const insights = (currentSummary.keyInsights || []).slice(0, 3).map((x) => `• ${sanitize(x)}`).join("\n");
+  const text = [
+    "--- Sumry Summary ---",
+    sanitize(currentTab?.url || ""),
+    "",
+    sanitize(currentSummary.summary || ""),
+    "",
+    "Key Insights:",
+    insights,
+    "",
+    `Word count: ${Number(currentSummary.wordCount || 0)} | Reading time: ${Math.max(1, Number(currentSummary.readingTime || 1))}m`
+  ].join("\n");
+
+  await navigator.clipboard.writeText(text);
+
+  const btn = q("copyBtn");
+  const icon = q("copyIcon");
+  const label = q("copyLabel");
+  btn.classList.add("copied");
+  icon.textContent = "✓";
+  label.textContent = "Copied!";
+  clearTimeout(copyResetTimeout);
+  copyResetTimeout = setTimeout(() => {
+    btn.classList.remove("copied");
+    icon.textContent = "📋";
+    label.textContent = "Copy";
   }, 2000);
 }
 
-function render(state, data = null) {
-  clearInterval(tipTimer);
-  const stateArea = document.getElementById("stateArea");
-  const actionBar = document.getElementById("actionBar");
-
-  if (state === "idle") {
-    stateArea.innerHTML = renderIdle();
-    actionBar.classList.add("hidden");
-    setMeta(null);
-    document.getElementById("idleSummarizeBtn")?.addEventListener("click", summarizeCurrentPage);
-    document.getElementById("idleSummarizeBtn")?.focus();
-    return;
-  }
-
-  if (state === "loading") {
-    stateArea.innerHTML = renderLoading();
-    actionBar.classList.add("hidden");
-    setLoadingTips();
-    return;
-  }
-
-  if (state === "error") {
-    stateArea.innerHTML = `
-      <section class="sumly-section">
-        <div class="sumly-label">ERROR</div>
-        <p class="sumly-muted">${sanitize(data?.message || "Unable to summarize right now.")}</p>
-      </section>
-    `;
-    actionBar.classList.add("hidden");
-    return;
-  }
-
-  if (state === "summary") {
-    stateArea.innerHTML = renderSummary(data);
-    actionBar.classList.remove("hidden");
-    setMeta(data, Boolean(data.cached));
-    document.getElementById("copyBtn")?.focus();
+function openSettings() {
+  const panel = q("settingsPanel");
+  lastFocusedBeforeSettings = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  panel.classList.add("open");
+  panel.setAttribute("aria-hidden", "false");
+  const firstInput = q("proxyUrlInput");
+  if (firstInput) {
+    firstInput.focus();
+    firstInput.select?.();
   }
 }
 
-async function maybeHighlight(summary) {
-  const settings = await storageGet("settings");
-  if (!settings?.settings?.highlightToggle) return;
-  const phrases = (summary?.keyPoints || []).slice(0, 3);
-  if (!phrases.length || !currentTab?.id) return;
-  await sendTabMessage(currentTab.id, { type: "HIGHLIGHT_CONTENT", phrases }).catch(() => null);
-  showToast("Highlights applied");
+function closeSettings() {
+  const panel = q("settingsPanel");
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && panel.contains(active)) {
+    active.blur();
+  }
+  panel.classList.remove("open");
+  panel.setAttribute("aria-hidden", "true");
+  const fallbackFocus = q("settingsBtn");
+  const returnFocus =
+    lastFocusedBeforeSettings instanceof HTMLElement ? lastFocusedBeforeSettings : fallbackFocus;
+  if (returnFocus instanceof HTMLElement) {
+    returnFocus.focus();
+  }
 }
 
-function buildCopyText(data) {
-  const summary = data.summary || {};
-  const points = (summary.keyPoints || []).map((p) => `- ${sanitize(p)}`).join("\n");
-  const insights = (summary.insights || []).map((i) => `→ ${sanitize(i)}`).join("\n");
-  return [
-    "=== SUMLY SUMMARY ===",
-    `[${sanitize(data.title || data.meta?.title || "")}]`,
-    "",
-    "SUMMARY",
-    sanitize(summary.tldr || ""),
-    "",
-    "KEY POINTS",
-    points,
-    "",
-    "INSIGHTS",
-    insights,
-    "",
-    `Source: ${sanitize(data.url || "")}`,
-    "Summarized by Sumly",
-    "==================="
-  ].join("\n");
-}
-
-async function summarizeCurrentPage() {
-  if (!currentTab?.id) return;
-  render("loading");
+async function testConnection() {
+  const status = q("connectionStatus");
+  const proxyUrl = sanitize(q("proxyUrlInput").value || "http://localhost:3001").replace(/\/$/, "");
+  status.textContent = "Testing...";
   try {
-    const extracted = await sendTabMessage(currentTab.id, { type: "EXTRACT_CONTENT" });
-    if (!extracted || extracted.error) throw new Error(extracted?.message || "No content extracted.");
-
-    const settings = await storageGet("settings");
-    const summaryMode = settings?.settings?.summaryMode || "full";
-    const result = await sendRuntimeMessage({
-      type: "SUMMARIZE",
-      content: extracted.content,
-      title: extracted.title,
-      url: extracted.url,
-      summaryMode
-    });
-    if (!result || result.error) throw new Error(result?.message || "Summarization failed.");
-
-    currentData = result;
-    render("summary", result);
-    await maybeHighlight(result.summary);
+    const response = await fetch(`${proxyUrl}/health`);
+    if (!response.ok) throw new Error("bad_health");
+    status.textContent = "✓ Connected";
   } catch (error) {
-    render("error", { message: error.message || "Unexpected summarization error." });
+    status.textContent = "✗ Failed";
   }
 }
 
-async function init() {
-  currentTab = await queryActiveTab().catch(() => null);
-  const settings = await storageGet(["theme", "settings"]);
-  applyTheme(settings.theme || "theme-dark");
+async function saveSettings() {
+  const modeEl = document.querySelector("input[name='defaultMode']:checked");
+  const payload = {
+    proxyUrl: sanitize(q("proxyUrlInput").value || "http://localhost:3001"),
+    defaultMode: modeEl?.value === "bullets" ? "bullets" : "full",
+    highlightEnabled: Boolean(q("highlightOnSummarize").checked),
+    theme: document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark"
+  };
 
-  const cacheKey = currentTab?.url ? getCacheKey(currentTab.url) : null;
-  const cached = cacheKey ? (await storageGet(cacheKey))[cacheKey] : null;
-
-  if (cached && Date.now() - Number(cached.timestamp || 0) <= 3600000) {
-    currentData = { ...cached, cached: true };
-    render("summary", currentData);
-  } else {
-    if (cacheKey && cached) await storageRemove(cacheKey);
-    render("idle");
+  const response = await sendRuntimeMessage({ action: "UPDATE_SETTINGS", settings: payload });
+  if (!response?.success) {
+    showToast("Could not save settings");
+    return;
   }
 
-  document.getElementById("summarizeBtn").addEventListener("click", summarizeCurrentPage);
-  document.getElementById("refreshBtn").addEventListener("click", summarizeCurrentPage);
-  document.getElementById("clearBtn").addEventListener("click", async () => {
-    if (!currentTab?.url) return;
-    await storageRemove(getCacheKey(currentTab.url));
-    if (currentTab.id) {
-      await sendTabMessage(currentTab.id, { type: "CLEAR_HIGHLIGHTS" }).catch(() => null);
+  highlightEnabled = payload.highlightEnabled;
+  updateModeUI(payload.defaultMode);
+  showToast("Settings saved");
+  closeSettings();
+}
+
+async function hydrateFromCache(url) {
+  if (!url) return null;
+  const key = getCacheKey(url);
+  const data = await new Promise((resolve) => chrome.storage.local.get(key, resolve));
+  const cached = data[key];
+  if (!cached) return null;
+  if (Date.now() - Number(cached.timestamp || 0) > 30 * 60 * 1000) return null;
+  return { ...cached, source: "cache" };
+}
+
+function bindButtonAccessibility() {
+  document.querySelectorAll("button[role='button']").forEach((button) => {
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        button.click();
+      }
+    });
+  });
+}
+
+function bindKeyboardShortcuts() {
+  document.addEventListener("keydown", async (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && currentState === States.SUMMARY) {
+      event.preventDefault();
+      await copySummary();
+      return;
     }
-    currentData = null;
-    render("idle");
-    showToast("Cache cleared");
-  });
-  document.getElementById("copyBtn").addEventListener("click", async () => {
-    if (!currentData) return;
-    await navigator.clipboard.writeText(buildCopyText(currentData));
-    showToast("Copied!");
-  });
-  document.getElementById("themeToggle").addEventListener("click", async () => {
-    const app = document.getElementById("app");
-    const next = app.classList.contains("theme-dark") ? "theme-light" : "theme-dark";
-    applyTheme(next);
-    chrome.storage.local.set({ theme: next });
+
+    if (event.key === "Escape") {
+      if (q("settingsPanel").classList.contains("open")) {
+        closeSettings();
+      } else if (currentState === States.SUMMARY) {
+        setState(States.IDLE);
+      } else {
+        window.close();
+      }
+    }
   });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  init().catch((error) => render("error", { message: error.message || "Initialization failed." }));
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    currentTab = tab;
+    updatePageInfo(tab);
+
+    const settingsResp = await sendRuntimeMessage({ action: "GET_SETTINGS" }).catch(() => ({ settings: {} }));
+    const settings = settingsResp?.settings || {};
+
+    setTheme(settings.theme || "dark");
+    updateModeUI(settings.defaultMode || "full");
+    highlightEnabled = settings.highlightEnabled !== false;
+
+    q("proxyUrlInput").value = settings.proxyUrl || "http://localhost:3001";
+    const modeRadio = document.querySelector(`input[name='defaultMode'][value='${currentMode}']`);
+    if (modeRadio) modeRadio.checked = true;
+    q("highlightOnSummarize").checked = highlightEnabled;
+
+    const cached = await hydrateFromCache(tab?.url);
+    if (cached) {
+      currentSummary = cached;
+      renderSummary(cached);
+      setState(States.SUMMARY, cached);
+    } else {
+      setState(States.IDLE);
+    }
+
+    q("summarizeFullBtn").addEventListener("click", () => {
+      updateModeUI("full");
+      summarize();
+    });
+    q("summarizeBulletsBtn").addEventListener("click", () => {
+      updateModeUI("bullets");
+      summarize();
+    });
+    q("retryBtn").addEventListener("click", summarize);
+
+    q("copyBtn").addEventListener("click", copySummary);
+    q("highlightBtn").addEventListener("click", toggleHighlight);
+    q("clearBtn").addEventListener("click", async () => {
+      await sendRuntimeMessage({ action: "CLEAR_CACHE" }).catch(() => null);
+      await sendTabMessage(currentTab.id, { action: "CLEAR_HIGHLIGHTS" }).catch(() => null);
+      isHighlighting = false;
+      q("highlightBtn").classList.remove("active");
+      currentSummary = null;
+      setState(States.IDLE);
+    });
+
+    q("modeToggle").addEventListener("click", async () => {
+      const next = currentMode === "full" ? "bullets" : "full";
+      updateModeUI(next);
+      await sendRuntimeMessage({ action: "UPDATE_SETTINGS", settings: { defaultMode: next } }).catch(() => null);
+    });
+
+    q("themeToggle").addEventListener("click", async () => {
+      const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
+      const next = currentTheme === "dark" ? "light" : "dark";
+      setTheme(next);
+      await sendRuntimeMessage({ action: "UPDATE_SETTINGS", settings: { theme: next } }).catch(() => null);
+    });
+
+    q("settingsBtn").addEventListener("click", openSettings);
+    q("closeSettingsBtn").addEventListener("click", closeSettings);
+    q("saveSettingsBtn").addEventListener("click", saveSettings);
+    q("testConnectionBtn").addEventListener("click", testConnection);
+    q("clearCacheSettingsBtn").addEventListener("click", async () => {
+      await sendRuntimeMessage({ action: "CLEAR_CACHE" }).catch(() => null);
+      showToast("Cache cleared");
+    });
+
+    bindButtonAccessibility();
+    bindKeyboardShortcuts();
+  } catch (error) {
+    setState(States.ERROR, { message: error.message || "Popup initialization failed." });
+  }
 });

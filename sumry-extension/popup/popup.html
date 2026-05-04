@@ -1,46 +1,117 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sumry</title>
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@500;700&display=swap"
-    />
-    <link rel="stylesheet" href="./popup.css" />
-    <title>Sumly</title>
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@500;700&display=swap">
+    <link rel="stylesheet" href="popup.css">
   </head>
-  <body class="sumly-body">
-    <div id="app" class="sumly-app theme-dark">
-      <header class="sumly-header">
-        <div class="sumly-brand">
-          <span class="sumly-brand-mark">◈</span>
-          <h1>Sumly</h1>
+  <body class="w-[400px] min-h-[500px] max-h-[600px] bg-dark text-light overflow-hidden flex flex-col">
+    <div id="app" class="popup-shell">
+      <header class="popup-header">
+        <div class="brand-wrap">
+          <span class="lettermark">S</span>
+          <span class="wordmark">Sumry</span>
         </div>
-        <div class="sumly-header-actions">
-          <button id="themeToggle" class="sumly-icon-btn" aria-label="Toggle theme">☼</button>
-          <button id="refreshBtn" class="sumly-icon-btn" aria-label="Resummarize">↻</button>
+        <div class="header-actions">
+          <button id="themeToggle" class="icon-btn" role="button" tabindex="0" aria-label="Toggle theme">
+            <span id="themeIcon">☀</span>
+          </button>
+          <button id="settingsBtn" class="icon-btn" role="button" tabindex="0" aria-label="Open settings">⚙</button>
         </div>
       </header>
 
-      <section id="pageMeta" class="sumly-meta hidden">
-        <p id="pageTitle" class="sumly-title"></p>
-        <div class="sumly-meta-row">
-          <span id="wordCount"></span>
-          <span>·</span>
-          <span id="readingTime"></span>
-          <span id="cacheBadge" class="sumly-cache hidden"></span>
+      <div id="page-info" class="page-info">
+        <img id="pageFavicon" class="page-favicon hidden" alt="" />
+        <div class="page-info-text">
+          <div id="pageDomain" class="page-domain">unknown</div>
+          <div id="pageTitle" class="page-title">Untitled Page</div>
         </div>
-      </section>
+      </div>
 
-      <main id="stateArea" class="sumly-state"></main>
+      <main id="main-content" class="main-content">
+        <div id="state-idle" class="state-block">
+          <div class="idle-emblem">
+            <span class="idle-flame">✦</span>
+          </div>
+          <button id="summarizeFullBtn" class="btn-primary" role="button" tabindex="0" aria-label="Summarize page in full mode">Summarize this page</button>
+          <button id="summarizeBulletsBtn" class="btn-ghost" role="button" tabindex="0" aria-label="Summarize page in bullet mode">Quick summary · 3 bullets</button>
+          <p class="idle-hint">Esc to close • Works on articles &amp; docs</p>
+        </div>
 
-      <footer id="actionBar" class="sumly-actions hidden">
-        <button id="copyBtn" class="sumly-btn sumly-btn-ghost">Copy</button>
-        <button id="clearBtn" class="sumly-btn sumly-btn-ghost">Clear</button>
-        <button id="summarizeBtn" class="sumly-btn sumly-btn-primary">Summarize</button>
+        <div id="state-loading" class="state-block hidden" aria-live="polite">
+          <div class="dot-loader"><span></span><span></span><span></span></div>
+          <p id="loadingText" class="loading-text">Reading the page...</p>
+        </div>
+
+        <div id="state-summary" class="state-block hidden">
+          <div class="summary-meta">
+            <span id="metaWordCount"></span>
+            <span id="metaReadingTime"></span>
+            <span id="metaMode" class="mode-badge">FULL</span>
+            <span id="cacheBadge" class="cache-badge hidden">Cached</span>
+          </div>
+          <section id="summarySection" class="summary-section">
+            <h3 class="section-label">Summary</h3>
+            <p id="summaryText" class="summary-text"></p>
+          </section>
+          <div class="divider"></div>
+          <section class="summary-section">
+            <h3 class="section-label">Key Insights</h3>
+            <ul id="insightsList" class="insights-list"></ul>
+          </section>
+        </div>
+
+        <div id="state-error" class="state-block hidden">
+          <div class="error-card" role="alert">
+            <div class="error-title">⚠ Error</div>
+            <p id="errorText" class="error-text">Unable to summarize.</p>
+            <button id="retryBtn" class="btn-ghost" role="button" tabindex="0" aria-label="Try summarizing again">Try Again</button>
+          </div>
+        </div>
+      </main>
+
+      <footer id="toolbar" class="toolbar">
+        <div class="toolbar-left">
+          <button id="copyBtn" class="tool-btn" role="button" tabindex="0" aria-label="Copy summary"><span id="copyIcon">📋</span><span id="copyLabel">Copy</span></button>
+          <button id="highlightBtn" class="tool-btn" role="button" tabindex="0" aria-label="Toggle highlight"><span>🖍</span><span>Highlight</span></button>
+          <button id="clearBtn" class="tool-btn" role="button" tabindex="0" aria-label="Clear summary"><span>✕</span><span>Clear</span></button>
+        </div>
+        <button id="modeToggle" class="mode-toggle" role="button" tabindex="0" aria-label="Toggle summary mode">Full ↔ 3 Bullets</button>
       </footer>
+
+      <aside id="settingsPanel" class="settings-panel" aria-hidden="true">
+        <div class="settings-header">
+          <h3>Settings</h3>
+          <button id="closeSettingsBtn" class="icon-btn" role="button" tabindex="0" aria-label="Close settings">✕</button>
+        </div>
+        <label class="settings-label" for="proxyUrlInput">Proxy URL</label>
+        <input id="proxyUrlInput" class="settings-input" type="text" value="http://localhost:3001" />
+        <div class="settings-actions-row">
+          <button id="testConnectionBtn" class="btn-ghost" role="button" tabindex="0" aria-label="Test proxy connection">Test Connection</button>
+          <span id="connectionStatus" class="settings-status"></span>
+        </div>
+
+        <fieldset class="settings-group">
+          <legend>Default Mode</legend>
+          <label class="radio-row"><input type="radio" name="defaultMode" value="full" checked /> Full Summary</label>
+          <label class="radio-row"><input type="radio" name="defaultMode" value="bullets" /> 3 Bullets</label>
+        </fieldset>
+
+        <label class="check-row">
+          <input id="highlightOnSummarize" type="checkbox" checked />
+          Highlight on summarize
+        </label>
+
+        <div class="settings-footer">
+          <button id="clearCacheSettingsBtn" class="btn-ghost" role="button" tabindex="0" aria-label="Clear cached summaries">Clear cache</button>
+          <button id="saveSettingsBtn" class="btn-primary" role="button" tabindex="0" aria-label="Save settings">Save</button>
+        </div>
+      </aside>
     </div>
-    <script src="./popup.js"></script>
+    <script src="popup.js"></script>
   </body>
 </html>

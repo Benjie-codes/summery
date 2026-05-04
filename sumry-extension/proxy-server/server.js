@@ -5,7 +5,9 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const PORT = Number(process.env.PORT || 3001);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const ALLOWED_ORIGIN = String(process.env.ALLOWED_ORIGIN || "").trim();
+const ALLOWED_ORIGIN = String(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS || "")
+  .split(",")[0]
+  .trim();
 
 if (!GEMINI_API_KEY) {
   throw new Error("Startup failed: GEMINI_API_KEY is missing in .env");
@@ -19,7 +21,7 @@ app.use(helmet());
 app.use(express.json({ limit: "50kb" }));
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 // Simple sliding-window limiter: Map<ip, { count, resetTime }>
 const rateMap = new Map();
