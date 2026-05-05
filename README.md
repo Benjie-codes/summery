@@ -1,6 +1,6 @@
 # Sumly — local AI page summarizer
 
-This repository contains a **Manifest V3 browser extension** (`sumry-extension/`) plus a **local Node.js proxy** (`sumry-extension/proxy-server/`) that calls LLM APIs. It is intended for **personal, local use**. **Do not publish this extension to the Chrome Web Store** unless you complete store policies, MV3 packaging, privacy disclosures, and key-handling requirements—this README assumes you load the extension unpacked from disk only.
+This repository contains a **Manifest V3 browser extension** plus a **Node.js proxy** (`proxy-server/`) that calls LLM APIs. The proxy can be run locally or deployed to platforms like Railway. It is intended for **personal use**. **Do not publish this extension to the Chrome Web Store** unless you complete store policies, MV3 packaging, privacy disclosures, and key-handling requirements—this README assumes you load the extension unpacked from disk only.
 
 ---
 
@@ -22,15 +22,19 @@ cd summery
 
 ### 2. Configure and run the proxy
 
+You can run the proxy locally or deploy it to a platform like **Railway**.
+
+#### Option A: Local Deployment
+
 ```bash
-cd sumry-extension/proxy-server
+cd proxy-server
 cp .env.example .env
 ```
 
 Edit `.env`:
 
 1. Add at least one LLM credential (see `.env.example` for `GEMINI_*`, `GROQ_*`, `OPENROUTER_*`).
-2. Set **`ALLOWED_ORIGIN`** (or `ALLOWED_ORIGINS`; the server uses the first entry) to your extension origin **after** you know it (step 4). Format: `chrome-extension://YOUR_EXTENSION_ID`.
+2. Set **`ALLOWED_ORIGINS`** to your extension origin **after** you know it (step 4). Format: `chrome-extension://YOUR_EXTENSION_ID` (or `chrome-extension://*` to allow any local extension).
 
 Install dependencies and start:
 
@@ -41,9 +45,15 @@ npm start
 
 By default the proxy listens on **`http://localhost:3001`** (`PORT` in `.env`). Health check: `GET http://localhost:3001/health`.
 
+#### Option B: Railway Deployment
+
+1. Deploy the `proxy-server` directory to Railway.
+2. In the Railway dashboard, configure the Environment Variables using the same keys listed in `.env.example` (e.g., `GEMINI_API_KEY`, `GROQ_API_KEY`).
+3. Set **`ALLOWED_ORIGINS`** to `chrome-extension://*` (allows any local installation to connect) or to your specific extension ID.
+
 ### 3. Build extension CSS (optional but recommended)
 
-From `sumry-extension/`:
+From the project root:
 
 ```bash
 npm install
@@ -57,15 +67,21 @@ Use `npm run watch:css` while editing Tailwind sources.
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select the **`sumly-extension`** folder (the directory that contains `manifest.json`).
+4. Select the **`sumly`** folder (the directory that contains `manifest.json`).
 
-Chrome assigns an **extension ID**. Copy your proxy URL into the extension settings (defaults to `http://localhost:3001`) and **set `ALLOWED_ORIGIN` in proxy `.env`** to:
+The extension is pre-configured to use the production Railway proxy, so **you are ready to use it immediately!**
+
+#### Optional: Configuring a Custom Proxy
+If you are running your own local or custom Railway proxy:
+1. Copy your proxy URL into the extension's Settings (e.g. `http://localhost:3001`).
+2. Chrome assigns an **extension ID** when you load it. Set **`ALLOWED_ORIGINS`** in your proxy `.env` to:
 
 ```text
 chrome-extension://<paste-extension-id-here>
 ```
+*(Alternatively, use `chrome-extension://*` to allow any extension origin.)*
 
-Restart the proxy after changing `.env`. If you remove and re-load the unpacked extension, the ID may change—update `ALLOWED_ORIGIN` again.
+Restart your custom proxy after changing `.env`.
 
 ### 5. Use it
 
@@ -101,7 +117,7 @@ Restart the proxy after changing `.env`. If you remove and re-load the unpacked 
 
 ### Why a proxy?
 
-Browser extensions **must not embed LLM API keys** in shipped code if you care about abuse (they are trivially extractable). This design keeps **secrets only on your machine** in `proxy-server/.env`, never in the extension bundle.
+Browser extensions **must not embed LLM API keys** in shipped code if you care about abuse (they are trivially extractable). This design keeps **secrets securely on the server** (in `proxy-server/.env` or Railway variables), never in the extension bundle.
 
 ### Providers and fallback chain
 
@@ -122,9 +138,9 @@ Configurable knobs include **`GEMINI_MAX_OUTPUT_TOKENS`**, **`GROQ_MODEL`**, **`
 
 ## Security decisions
 
-1. **API keys only in `.env` on the proxy host** — not committed (use `.env.example` as a template).
-2. **Strict CORS** — only `ALLOWED_ORIGIN` may call `/summarize`; wrong extension origins get **403**.
-3. **`host_permissions`** — extension network access is scoped to **`http://localhost/*`** and **`http://127.0.0.1/*`** by default; remote proxies require manifest updates.
+1. **API keys only on the proxy host** — in `.env` or deployment variables, never committed.
+2. **Strict CORS** — only origins matching `ALLOWED_ORIGINS` may call `/summarize`; wrong extension origins get **403**.
+3. **`host_permissions`** — extension network access is scoped to your proxy URLs (e.g., `http://localhost/*`, `https://sumly-production.up.railway.app/*`) in `manifest.json`.
 4. **Helmet** on Express for baseline HTTP headers.
 5. **Rate limiting** on `/summarize` to reduce accidental abuse or tight loops while developing.
 6. **Basic server-side sanitization** of pasted page HTML/text before sending to the model (not a substitute for full HTML parsing or malware guarantees).
@@ -137,7 +153,7 @@ Treat your `.env` like production secrets: restrictive file permissions, no scre
 
 | Benefit | Cost |
 |---------|------|
-| Keys stay off-extension | You **must run** the proxy locally (or host your own server and widen permissions). |
+| Keys stay off-extension | You **must run** the proxy (locally or via a service like Railway). |
 | Multi-provider resilience | More moving parts; logs and quotas vary per vendor. |
 | JSON-mode summaries | Some models/providers reject `json_object`; you may need to change **`OPENROUTER_MODEL`** / **`GROQ_MODEL`**. |
 | Unpacked workflow | **Extension ID drift** when reloading unpacked builds → **`ALLOWED_ORIGIN`** must stay in sync. |
@@ -147,7 +163,7 @@ Treat your `.env` like production secrets: restrictive file permissions, no scre
 
 ## Troubleshooting
 
-- **`403 Forbidden origin`** — `ALLOWED_ORIGIN` does not match `chrome-extension://<id>`; fix `.env` and restart proxy.
+- **`403 Forbidden origin`** — `ALLOWED_ORIGINS` does not match `chrome-extension://<id>` (or `chrome-extension://*`); fix your `.env` or deployment variables and restart.
 - **`Can't reach the summary server`** — proxy down, wrong port in extension settings, or missing `host_permissions` for your proxy URL.
 - **`429` / quota messages** — upstream limits; wait or add keys / reorder **`LLM_PROVIDER_ORDER`**.
 - After changing **`manifest.json`**, reload the extension in `chrome://extensions`.
