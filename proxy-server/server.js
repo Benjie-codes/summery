@@ -4,9 +4,14 @@ const helmet = require("helmet");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const PORT = Number(process.env.PORT || 3001);
-const ALLOWED_ORIGIN = String(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS || "")
-  .split(",")[0]
-  .trim();
+
+// Supports comma-separated list: chrome-extension://abc123,https://localhost:3001
+const ALLOWED_ORIGINS = new Set(
+  String(process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
 
 function mergeApiKeys(pluralEnv, singularEnv) {
   const fromList = String(process.env[pluralEnv] || "")
@@ -25,12 +30,17 @@ const GEMINI_API_KEYS = mergeApiKeys("GEMINI_API_KEYS", "GEMINI_API_KEY");
 const GROQ_API_KEYS = mergeApiKeys("GROQ_API_KEYS", "GROQ_API_KEY");
 const OPENROUTER_API_KEYS = mergeApiKeys("OPENROUTER_API_KEYS", "OPENROUTER_API_KEY");
 
-if (!ALLOWED_ORIGIN) {
-  throw new Error("Startup failed: ALLOWED_ORIGIN is missing in .env");
+if (ALLOWED_ORIGINS.size === 0) {
+  console.warn(
+    "[sumly] WARNING: ALLOWED_ORIGINS is not set. All requests will be rejected with 403.\n" +
+    "  → On Railway: set ALLOWED_ORIGINS=chrome-extension://* to allow any extension (good for demos/reviews).\n" +
+    "  → Or use a specific ID: ALLOWED_ORIGINS=chrome-extension://<your-extension-id>"
+  );
 }
 if (!GEMINI_API_KEYS.length && !GROQ_API_KEYS.length && !OPENROUTER_API_KEYS.length) {
-  throw new Error(
-    "Startup failed: set at least one API key — GEMINI_API_KEY / GEMINI_API_KEYS, GROQ_API_KEY / GROQ_API_KEYS, and/or OPENROUTER_API_KEY / OPENROUTER_API_KEYS"
+  console.warn(
+    "[sumly] WARNING: No API keys found. Summarize requests will fail.\n" +
+    "  → On Railway: set GEMINI_API_KEY, GROQ_API_KEY, and/or OPENROUTER_API_KEY in the Railway env vars panel."
   );
 }
 
@@ -601,13 +611,23 @@ function extractRetryDelayMs(message) {
   return 0;
 }
 
+// True if ALLOWED_ORIGINS contains '*' or 'chrome-extension://*' — accepts any extension origin
+const ALLOW_ALL_EXTENSION_ORIGINS = ALLOWED_ORIGINS.has("*") || ALLOWED_ORIGINS.has("chrome-extension://*");
+
+function isOriginAllowed(origin) {
+  if (!origin) return false;
+  if (ALLOW_ALL_EXTENSION_ORIGINS && origin.startsWith("chrome-extension://")) return true;
+  return ALLOWED_ORIGINS.has(origin);
+}
+
 function applyCors(req, res, next) {
-  const origin = req.headers.origin;
-  if (origin !== ALLOWED_ORIGIN) {
+  const origin = req.headers.origin || "";
+
+  if (ALLOWED_ORIGINS.size === 0 || !isOriginAllowed(origin)) {
     return res.status(403).json({ error: "Forbidden origin." });
   }
 
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -720,8 +740,9 @@ app.post("/summarize", applyCors, rateLimit, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Sumry proxy server running on port ${PORT}`);
+  console.log(`[sumly] Proxy server running on port ${PORT}`);
   console.log(
-    `LLM chain: ${PROVIDER_ORDER.join(" → ")} | keys: gemini=${GEMINI_API_KEYS.length} groq=${GROQ_API_KEYS.length} openrouter=${OPENROUTER_API_KEYS.length}`
+    `[sumly] LLM chain: ${PROVIDER_ORDER.join(" → ")} | keys: gemini=${GEMINI_API_KEYS.length} groq=${GROQ_API_KEYS.length} openrouter=${OPENROUTER_API_KEYS.length}`
   );
+  console.log(`[sumly] Allowed origins (${ALLOWED_ORIGINS.size}): ${[...ALLOWED_ORIGINS].join(", ") || "(none — all requests will 403)"}`);
 });

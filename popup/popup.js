@@ -1,3 +1,4 @@
+
 const States = {
   IDLE: "idle",
   LOADING: "loading",
@@ -322,7 +323,7 @@ function closeSettings() {
 
 async function testConnection() {
   const status = q("connectionStatus");
-  const proxyUrl = sanitize(q("proxyUrlInput").value || "http://localhost:3001").replace(/\/$/, "");
+  const proxyUrl = sanitize(q("proxyUrlInput").value || "https://sumly-production.up.railway.app").replace(/\/$/, "");
   status.textContent = "Testing...";
   try {
     const response = await fetch(`${proxyUrl}/health`);
@@ -336,7 +337,7 @@ async function testConnection() {
 async function saveSettings() {
   const modeEl = document.querySelector("input[name='defaultMode']:checked");
   const payload = {
-    proxyUrl: sanitize(q("proxyUrlInput").value || "http://localhost:3001"),
+    proxyUrl: sanitize(q("proxyUrlInput").value || "https://sumly-production.up.railway.app"),
     defaultMode: modeEl?.value === "bullets" ? "bullets" : "full",
     highlightEnabled: Boolean(q("highlightOnSummarize").checked),
     theme: document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark"
@@ -408,7 +409,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateModeUI(settings.defaultMode || "full");
     highlightEnabled = settings.highlightEnabled !== false;
 
-    q("proxyUrlInput").value = settings.proxyUrl || "http://localhost:3001";
+    q("proxyUrlInput").value = settings.proxyUrl || "https://sumly-production.up.railway.app";
     const modeRadio = document.querySelector(`input[name='defaultMode'][value='${currentMode}']`);
     if (modeRadio) modeRadio.checked = true;
     q("highlightOnSummarize").checked = highlightEnabled;

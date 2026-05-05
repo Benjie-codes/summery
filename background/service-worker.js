@@ -3,8 +3,10 @@ const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 50;
 const CONTENT_TIMEOUT_MS = 10000;
 
+const RAILWAY_PROXY_URL = "https://sumly-production.up.railway.app";
+
 const DEFAULT_SETTINGS = {
-  proxyUrl: "http://localhost:3001",
+  proxyUrl: RAILWAY_PROXY_URL,
   defaultMode: "full",
   highlightEnabled: true,
   theme: "dark"
@@ -83,7 +85,7 @@ function mapError(error) {
     };
   }
   return {
-    error: "Can't reach the summary server. Check proxy URL/port and extension host permissions, then ensure the proxy is running.",
+    error: "Can't reach the summary server. Check that the Railway proxy (sumly-production.up.railway.app) is running, or verify the proxy URL in settings.",
     errorCode: "NETWORK_ERROR"
   };
 }

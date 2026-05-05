@@ -5,7 +5,9 @@
   "description": "AI-powered page summarizer.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
+    "https://sumly-production.up.railway.app/*",
     "http://localhost/*",
+    "https://localhost/*",
     "http://127.0.0.1/*"
   ],
   "background": {
